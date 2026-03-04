@@ -12,6 +12,7 @@ function run(name, cmd, args, env = {}) {
 
 run("slack-mock", "node", ["mocks/slack/server.js"]);
 run("ms-mock", "node", ["mocks/microsoft/server.js"]);
+run("failure-mock", "node", ["mocks/failure/server.js"]);
 
 process.on("SIGINT", () => {
   for (const p of procs) p.kill("SIGINT");

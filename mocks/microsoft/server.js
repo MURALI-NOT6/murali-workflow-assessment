@@ -1,4 +1,3 @@
-\
 import express from "express";
 import bodyParser from "body-parser";
 
@@ -40,7 +39,8 @@ app.post("/me/sendMail", (req, res) => {
   }
 
   // Graph usually returns 202 Accepted (no content) for sendMail
-  return res.status(202).send();
+  // However, returning a valid JSON object prevents JSON parsing errors in testing tools like n8n
+  return res.status(202).json({ success: true, message: "Accepted" });
 });
 
 app.get("/health", (_, res) => res.json({ ok: true }));

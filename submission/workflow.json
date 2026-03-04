@@ -1,0 +1,525 @@
+{
+  "name": "Offline Incident Notifier - Production",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "incident",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "dd60f9fe-af32-44bc-8e1d-efd6ed8024da",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        272,
+        1120
+      ],
+      "webhookId": "004136c2-efb4-4212-81ae-682069c16136"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get webhook body\nconst payload = $json.body;\n\n// ------------------------\n// 1️⃣ Required Field Validation\n// ------------------------\nconst requiredFields = [\"incidentId\", \"severity\", \"title\", \"createdAt\"];\n\nfor (const field of requiredFields) {\n  if (!payload[field]) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\n// ------------------------\n// 2️⃣ Severity Mapping\n// ------------------------\nconst severityMap = {\n  P1: 1,\n  P2: 2,\n  P3: 3,\n  P4: 4,\n};\n\nconst numericSeverity = severityMap[payload.severity];\n\nif (!numericSeverity) {\n  throw new Error(\"Invalid severity value. Allowed: P1-P4\");\n}\n\n// ------------------------\n// 3️⃣ Truncate Description\n// ------------------------\nconst description = (payload.description || \"\").substring(0, 240);\n\n// ------------------------\n// 4️⃣ Generate Dedupe Key\n// Formula: incidentId_createdAt\n// ------------------------\nconst dedupeKey = `${payload.incidentId}_${payload.createdAt}`;\n\n// ------------------------\n// 5️⃣ Create Slack Message\n// ------------------------\nconst slackMessage =\n`${payload.title}\n\n${description ? description : \"\"}\n\nIncidentId: ${payload.incidentId}\nSeverity: ${payload.severity}\nCorrelationId: ${dedupeKey}\nCreatedAt: ${payload.createdAt}`;\n\n// ------------------------\n// 6️⃣ Create Email Content\n// ------------------------\nconst emailSubject = `[P${numericSeverity}] ${payload.title}`;\n\nconst emailBody = {\n  title: payload.title,\n  description: description ? description : \"\",\n  incidentId: payload.incidentId,\n  severity: payload.severity,\n  correlationId: dedupeKey,\n  createdAt: payload.createdAt\n};\n\n// ------------------------\n// Return Clean Normalized Object\n// ------------------------\nreturn [\n  {\n    json: {\n      incidentId: payload.incidentId,\n      severity: payload.severity,\n      numericSeverity,\n      title: payload.title,\n      description,\n      ownerEmail: payload.ownerEmail,\n      createdAt: payload.createdAt,\n      dedupeKey,\n      slackMessage,\n      emailSubject,\n      emailBody,\n      metadata:{\n        tags: payload.tags\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        1120
+      ],
+      "id": "7ec0de14-0002-4ff9-84b5-6ff212f1f500",
+      "name": "Validate + Normalize1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get workflow static storage\nconst staticData = $getWorkflowStaticData('global');\n\nif (!staticData.processed) {\n  staticData.processed = {};\n}\n\nconst dedupeKey = $json.dedupeKey;\n\n// If already processed\nif (staticData.processed[dedupeKey]) {\n  return [\n    {\n      json: {\n        ...$json,\n        alreadyProcessed: true\n      }\n    }\n  ];\n}\n\n// If not processed yet, mark as processed\nstaticData.processed[dedupeKey] = true;\n\nreturn [\n  {\n    json: {\n      ...$json,\n      alreadyProcessed: false\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        1120
+      ],
+      "id": "e086421c-fe21-4d56-819b-e70a95488bff",
+      "name": "Check Idempotency1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "937327f1-8c12-4345-92af-377c16f7784e",
+              "leftValue": "={{ $json.alreadyProcessed }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1040,
+        1120
+      ],
+      "id": "38b5127f-a041-4b3b-8edb-d0a291bfd614",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4823a1f6-8103-4d09-8c72-e159c5d50893",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1600,
+        1136
+      ],
+      "id": "181edaff-1960-457f-92a7-27b6bfa0cfba",
+      "name": "If1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1904,
+        1120
+      ],
+      "id": "2e08cafd-90e4-4dae-89e3-cb5ff793b562",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:4010/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer slack-test-token"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#oncall-alerts\",\n  \"text\": \"🚨 *Incident Alert*\\nID: {{$json.incidentId}}\\nSeverity: {{$json.numericSeverity}}\\nTitle: {{$json.title}}\\nCreated: {{$json.createdAt}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1392,
+        1136
+      ],
+      "id": "329f1629-15e6-4b93-b21d-94d47a59a9bd",
+      "name": "Slack request",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:4020/me/sendMail",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ms-test-token"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": {\n    \"subject\": \"{{ $json.emailSubject }}\",\n    \"body\": {\n      \"contentType\": \"Text\",\n      \"content\": \"{{ $json.emailBody.description }}\\n\\nCorrelationId: {{ $json.emailBody.correlationId }}\\nCreatedAt: {{ $json.emailBody.createdAt }}\"\n    },\n    \"toRecipients\": [\n      {\n        \"emailAddress\": {\n          \"address\": \"{{ $json.ownerEmail }}\"\n        }\n      }\n    ]\n  },\n  \"saveToSentItems\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2368,
+        1120
+      ],
+      "id": "2a81aab2-2548-4570-941c-cd709b168ae9",
+      "name": "Office 365 mock server",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// items[0] = Slack response\n// items[1] = Original incident data\n\nconst slackResponse = items[0].json;\nconst incidentData = items[1].json;\n\nreturn [\n  {\n    json: {\n      ...incidentData,\n      slackResponse\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        1120
+      ],
+      "id": "e5a9aeec-58f9-4a8c-9fe8-4ee73098f68e",
+      "name": "Format json"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4823a1f6-8103-4d09-8c72-e159c5d50893",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2656,
+        1120
+      ],
+      "id": "087c0e54-f173-48e3-9429-af52e9b252f7",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2944,
+        1344
+      ],
+      "id": "50e3241e-6709-43a0-9334-cb610fe401ac",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3008,
+        1104
+      ],
+      "id": "addd431e-c4ed-4d9a-b598-3f9821d48128",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3648,
+        1360
+      ],
+      "id": "1b716f6a-262c-4aaa-9902-98604cf77133",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1392,
+        880
+      ],
+      "id": "9c21bf84-d55f-41d1-a687-60052ca9d63c",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:4030/failed-incident",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3440,
+        1360
+      ],
+      "id": "781a4ced-9700-4120-a550-3825b3127048",
+      "name": "Failed incident",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst officeResponse = items.find(i => i.json.success);\nconst incidentData = items.find(i => i.json.incidentId);\nconst slackResponse = items.find(i => i.json.ok);\n\nreturn [\n  {\n    json: {\n      incidentId: incidentData?.json?.incidentId,\n      severity: incidentData?.json?.severity,\n      numericSeverity: incidentData?.json?.numericSeverity,\n      title: incidentData?.json?.title,\n      description: incidentData?.json?.description,\n      ownerEmail: incidentData?.json?.ownerEmail,\n      createdAt: incidentData?.json?.createdAt,\n      dedupeKey: incidentData?.json?.dedupeKey,\n      alreadyProcessed: incidentData?.json?.alreadyProcessed,\n      metadata: incidentData?.json?.metadata,\n\n      // ✅ Office 365 response renamed properly\n      office365: {\n        status: officeResponse?.json?.success || false,\n        response: officeResponse?.json?.message || \"Processed\"\n      },\n\n      // Slack response\n      slack: {\n        ok: slackResponse?.json?.ok || false,\n        channel: slackResponse?.json?.channel,\n        ts: slackResponse?.json?.ts\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3184,
+        1360
+      ],
+      "id": "973af9d5-f8ce-4041-92b5-b646857bc2f7",
+      "name": "Format json1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate + Normalize1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Normalize1": {
+      "main": [
+        [
+          {
+            "node": "Check Idempotency1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Idempotency1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Format json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack request": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format json": {
+      "main": [
+        [
+          {
+            "node": "Office 365 mock server",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Office 365 mock server": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Format json1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed incident": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format json1": {
+      "main": [
+        [
+          {
+            "node": "Failed incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "af3e6a0e-f372-4411-b782-f91a84a45444",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "82e86c020c54a0ac3630d8ed2e489cf81f5676db9650119b0a71dbe94d731b0f"
+  },
+  "id": "RLtnNK17JRf2TJoB",
+  "tags": []
+}
