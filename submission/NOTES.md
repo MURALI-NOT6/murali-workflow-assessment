@@ -102,3 +102,39 @@ graph TD
 - **External Requests**: Standard HTTP Request nodes submit the normalized payloads to the local simulated backend APIs for Slack and Office 365.
 - **Error Handling & Merging**: Parallel paths use `Merge` nodes and conditional `If` nodes to handle failures dynamically. If Slack or Microsoft fails, the workflow elegantly aggregates the failures via `Merge1` and `Format json1` into a single consolidated payload. It then POSTs this to the Failure mock server, finally responding with an HTTP 400 Bad Request to the caller.
 
+## Deliverables
+
+### How to Run the Workflow
+1. Launch your n8n instance (either local or cloud).
+2. Go to your workflows and click **Import from File**.
+3. Select the `submission/workflow.json` file to import the workflow.
+4. Set the workflow to **Active** using the toggle in the top right corner.
+5. In your frontend application (`frontend/src/api/incidentService.js` or `frontend/src/api/apiClient.js`), ensure requests are POSTed to the correct webhook origin (e.g. `http://localhost:5678/webhook/incident`).
+
+### Retries and Backoff
+Retries and backoff are configured directly on the n8n HTTP Request nodes making calls to the mock external services (Slack mock, Office 365 mock, and Failure mock).
+- **Retry On Fail**: Enabled (`retryOnFail: true`)
+- **Max Tries**: 5
+- **Wait Between Tries**: 2000 ms (2 seconds)
+This ensures temporary connection issues or rate limits on the mock endpoints will be retried automatically with a 2-second delay.
+
+### Deduplication and Idempotency
+Idempotency is implemented using n8n's static workflow data mechanism (`$getWorkflowStaticData('global')`) within the `Check Idempotency1` Code node.
+- A `dedupeKey` is mathematically generated for each incoming incident.
+- The `global` static data caches processed `dedupeKey` strings.
+- First, the incoming `dedupeKey` is checked against the memory object `staticData.processed`.
+- If it exists, a flag `alreadyProcessed` is set to `true`, and an `If` node dynamically routes the flow to a 409 Conflict Webhook Response.
+- If it does not exist, it gets assigned as `true` in `staticData.processed`, preventing duplicate actions from processing moving forward.
+
+### Where Failure Records are Written
+In the event that either the Slack or Microsoft notification process fails within the workflow, the failure objects are evaluated by conditional nodes and aggregated (Merged) before being passed to a final HTTP Request Node. These failure records are submitted to the **Failure mock server**:
+- **Endpoint**: `POST http://localhost:4030/failed-incident`
+- The payload sent contains the entire consolidated failure diagnostic object with specific data showing exactly which services failed (`office365: { status: false }`, `slack: { ok: false }`), alongside the root incident data.
+Finally, an HTTP 400 Bad Request is returned to the original caller.
+
+### DedupeKey Formula
+The `dedupeKey` formula combines the unique `incidentId` and the explicit time representation `createdAt` of the incident to generate a definitive deduplication fingerprint.
+It is computed as follows in the Validate node:
+```javascript
+const dedupeKey = `${payload.incidentId}_${payload.createdAt}`;
+```
